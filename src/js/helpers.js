@@ -39,10 +39,12 @@
 
 	// Sets a class and removes it after [duration] ms.
 	function addClassFor ( element, className, duration ) {
+		if (duration > 0) {
 		addClass(element, className);
-		setTimeout(function(){
-			removeClass(element, className);
-		}, duration);
+			setTimeout(function(){
+				removeClass(element, className);
+			}, duration);
+		}
 	}
 
 	// Limits a value to 0 - 100
@@ -57,6 +59,7 @@
 
 	// Counts decimals
 	function countDecimals ( numStr ) {
+		numStr = String(numStr);
 		var pieces = numStr.split(".");
 		return pieces.length > 1 ? pieces[1].length : 0;
 	}

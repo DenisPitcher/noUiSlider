@@ -4,7 +4,7 @@ function closure ( target, options, originalOptions ){
 		actions = getActions( ),
 		// All variables local to 'closure' are prefixed with 'scope_'
 		scope_Target = target,
-		scope_Locations = [-1, -1],
+		scope_Locations = [],
 		scope_Base,
 		scope_Handles,
 		scope_Spectrum = options.spectrum,

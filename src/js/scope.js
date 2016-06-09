@@ -2,18 +2,18 @@
 	// Test suggested values and apply margin, step.
 	function setHandle ( handle, to, noLimitOption ) {
 
-		var trigger = handle !== scope_Handles[0] ? 1 : 0,
-			lowerMargin = scope_Locations[0] + options.margin,
-			upperMargin = scope_Locations[1] - options.margin,
-			lowerLimit = scope_Locations[0] + options.limit,
-			upperLimit = scope_Locations[1] - options.limit;
+		var trigger;
+		for (trigger = 0 ; scope_Handles[trigger] !== handle ; trigger++) { }
+
+		var lowerMargin = scope_Locations[trigger-1] + options.margin,
+			upperMargin = scope_Locations[trigger+1] - options.margin,
+			lowerLimit = scope_Locations[trigger-1] + options.limit,
+			upperLimit = scope_Locations[trigger+1] - options.limit;
 
 		// For sliders with multiple handles,
 		// limit movement to the other handle.
 		// Apply the margin option by adding it to the handle positions.
-		if ( scope_Handles.length > 1 ) {
-			to = trigger ? Math.max( to, lowerMargin ) : Math.min( to, upperMargin );
-		}
+		to = Math.min(Math.max(to, isNaN(lowerMargin)?0:lowerMargin), isNaN(upperMargin)?100:upperMargin);
 
 		// The limit option has the opposite effect, limiting handles to a
 		// maximum distance from another. Limit must be > 0, as otherwise
@@ -38,7 +38,8 @@
 		// Use requestAnimationFrame for efficient painting.
 		// No significant effect in Chrome, Edge sees dramatic
 		// performace improvements.
-		if ( window.requestAnimationFrame ) {
+		// Option to disable is useful for unit tests, and single-step debugging.
+		if ( window.requestAnimationFrame && options.useRequestAnimationFrame ) {
 			window.requestAnimationFrame(function(){
 				handle.style[options.style] = to + '%';
 			});
@@ -46,11 +47,51 @@
 			handle.style[options.style] = to + '%';
 		}
 
-		// Force proper handle stacking
-		if ( !handle.previousSibling ) {
-			removeClass(handle, options.cssClasses.stacking);
-			if ( to > 50 ) {
-				addClass(handle, options.cssClasses.stacking);
+		// Take care of handle stacking by manipulating the z-index of the inner div.
+		// Handles that are moved go to the top of the stack, so that the movement can be reverted,
+		// in order to be able to avoid a dead end.
+		var allHandles = handle.parentNode.childNodes;
+		var handleCount = allHandles.length;
+		var minZIndex = 10;
+		// Multiplication by 2 is used to double the z-index range, so that the initialization of the
+		// left part of the slider is independent from the initialization of the right part of the slider.
+		var maxZIndex = minZIndex + 2 * handleCount - 1;
+		// Take the z-index of the handle's inner div, defaulting to 0, if no z-index exists.
+		var zIndex = parseInt( handle.childNodes[0].style.zIndex ) || 0;
+		// If the z-index does not exist and, thus, initialization is in order.
+		if ( zIndex === 0 ) {
+			// Calculate the position of the handle among all handles by counting previous siblings.
+			var handleIndex = 0;
+			var sibling = handle;
+			while ( ( sibling = sibling.previousSibling) !== null ) {
+				handleIndex++;
+			}
+			// If the handle is up to the middle of the slider.
+			if ( to <= 50 ) {
+				// The z-indices up to the middle of the slider are increasing.
+				// The range of z-indices up to the middle of the slider is [minZIndex, minZIndex + handleCount - 1].
+				handle.childNodes[0].style.zIndex = ( minZIndex + handleIndex ).toString();
+			}
+			// Else, that is the handle is after the middle of the slider.
+			else {
+				// The z-indices after the middle of the slider are decreasing.
+				// The range of z-indices after the middle of the slider is [minZIndex + handleCount, maxZIndex].
+				handle.childNodes[0].style.zIndex = ( maxZIndex - handleIndex ).toString();
+			}
+		}
+		// If the z-index exists and the handle is not already at the top (if it already is at the top, then nothing needs to be done).
+		else if ( zIndex < maxZIndex ) {
+			// Make it go a step above the top (because of needing to take a step down afterwards, when all handles are iterated).
+			handle.childNodes[0].style.zIndex = ( maxZIndex + 1 ).toString();
+			// Iterate all handles.
+			for ( var i = 0; i < handleCount; i++ ) {
+				// The z-index of the other handle's inner div.
+				var otherZIndex = parseInt( allHandles[i].childNodes[0].style.zIndex ) || 0;
+				// If the other handle's inner div is above the current handle's inner div before the z-index update,
+				// then take a step down.
+				if ( otherZIndex > zIndex ) {
+					allHandles[i].childNodes[0].style.zIndex = ( otherZIndex - 1 ).toString();
+				}
 			}
 		}
 
@@ -66,21 +107,20 @@
 	}
 
 	// Loop values from value method and apply them.
-	function setValues ( count, values ) {
+	function setValues ( values ) {
 
-		var i, trigger, to;
-
-		// With the limit option, we'll need another limiting pass.
-		if ( options.limit ) {
-			count += 1;
-		}
+		var i, trigger, to,
+		basePasses = (values.length*values.length),
+		passesIncludingLimitingPass = basePasses+(options.limit?values.length:0);
 
 		// If there are multiple handles to be set run the setting
 		// mechanism twice for the first handle, to make sure it
 		// can be bounced of the second one properly.
-		for ( i = 0; i < count; i += 1 ) {
+		for ( i = 0; i < passesIncludingLimitingPass; i += 1 ) {
+			var isLimitingPass = i>basePasses;
 
-			trigger = i%2;
+			trigger = i%values.length;
+			trigger = isLimitingPass&&options.dir ? values.length-1-trigger : trigger;
 
 			// Get the current argument from the array.
 			to = values[trigger];
@@ -98,7 +138,7 @@
 
 				// Request an update for all links if the value was invalid.
 				// Do so too if setting the handle fails.
-				if ( to === false || isNaN(to) || setHandle( scope_Handles[trigger], scope_Spectrum.toStepping( to ), i === (3 - options.dir) ) === false ) {
+				if ( to === false || isNaN(to) || setHandle( scope_Handles[trigger], scope_Spectrum.toStepping( to ), isLimitingPass) === false ) {
 					fireEvent('update', trigger);
 				}
 			}
@@ -108,7 +148,7 @@
 	// Set the slider value.
 	function valueSet ( input, fireSetEvent ) {
 
-		var count, values = asArray( input ), i;
+		var values = asArray( input ), i;
 
 		// Event fires by default
 		fireSetEvent = (fireSetEvent === undefined ? true : !!fireSetEvent);
@@ -125,14 +165,7 @@
 			addClassFor( scope_Target, options.cssClasses.tap, options.animationDuration );
 		}
 
-		// Determine how often to set the handles.
-		count = scope_Handles.length > 1 ? 3 : 1;
-
-		if ( values.length === 1 ) {
-			count = 1;
-		}
-
-		setValues ( count, values );
+		setValues ( values );
 
 		// Fire the 'set' event for both handles.
 		for ( i = 0; i < scope_Handles.length; i++ ) {
@@ -172,6 +205,13 @@
 		delete scope_Target.noUiSlider;
 	}
 
+	function topStepOfRangeBelow(nearbySteps) {
+		var numStepsInRangeBelow = (nearbySteps.thisStep.xVal-nearbySteps.stepBefore.xVal)/nearbySteps.stepBefore.xNumSteps,
+		highestCompleteStep = Math.ceil(Number(numStepsInRangeBelow.toFixed(3))-1),
+		stepBelow = nearbySteps.stepBefore.xVal + nearbySteps.stepBefore.xNumSteps*highestCompleteStep;
+		return stepBelow;
+	}
+
 	// Get the current step size for the slider.
 	function getCurrentStep ( ) {
 
@@ -179,32 +219,46 @@
 		// Get the step point, then find it in the input list.
 		var retour = scope_Locations.map(function( location, index ){
 
-			var step = scope_Spectrum.getApplicableStep( location ),
+			var nearbySteps = scope_Spectrum.getNearbySteps( location ),
+			// As per #391, the comparison for the decrement step can have some rounding issues.
+			stepDecimals = scope_Spectrum.countStepDecimals(),
+			// Get the current numeric value
+			value = scope_Values[index];
 
-				// As per #391, the comparison for the decrement step can have some rounding issues.
-				// Round the value to the precision used in the step.
-				stepDecimals = countDecimals(String(step[2])),
-
-				// Get the current numeric value
-				value = scope_Values[index],
-
-				// To move the slider 'one step up', the current step value needs to be added.
-				// Use null if we are at the maximum slider value.
-				increment = location === 100 ? null : step[2],
-
-				// Going 'one step down' might put the slider in a different sub-range, so we
-				// need to switch between the current or the previous step.
-				prev = Number((value - step[2]).toFixed(stepDecimals)),
-
-				// If the value fits the step, return the current step value. Otherwise, use the
-				// previous step. Return null if the slider is at its minimum value.
-				decrement = location === 0 ? null : (prev >= step[1]) ? step[2] : (step[0] || false);
+			var increment, decrement;
+			if (location == 100) {
+				increment = null;
+				decrement = value-topStepOfRangeBelow(nearbySteps);
+				decrement = Number(decrement.toFixed(stepDecimals)); // Round per #391
+			} else if (location === 0) {
+				increment = nearbySteps.thisStep.xNumSteps;
+				decrement = null;
+			} else {
+				increment = nearbySteps.thisStep.xNumSteps;
+				if (increment !== false) {
+					if (value+increment>nearbySteps.stepAfter.xVal) {
+						increment = nearbySteps.stepAfter.xVal-value;
+					}
+					increment = Number(increment.toFixed(stepDecimals));
+				}
+				if (value>nearbySteps.thisStep.xVal) {
+					decrement = nearbySteps.thisStep.xNumSteps;
+				} else if (nearbySteps.stepBefore.xNumSteps === false) {
+					decrement = false;
+				} else {
+					decrement = value-topStepOfRangeBelow(nearbySteps);
+					decrement = Number(decrement.toFixed(stepDecimals)); // Round per #391
+				}
+			}
 
 			return [decrement, increment];
 		});
 
 		// Return values in the proper order.
-		return inSliderOrder( retour );
+		if ( options.dir ) {
+			retour = retour.reverse();
+		}
+		return retour;
 	}
 
 	// Attach an event to this slider, possibly including a namespace
@@ -267,7 +321,7 @@
 		scope_Spectrum = newOptions.spectrum;
 
 		// Invalidate the current positioning so valueSet forces an update.
-		scope_Locations = [-1, -1];
+		scope_Locations = [];
 		valueSet(optionsToUpdate.start || v, fireSetEvent);
 	}
 

@@ -52,7 +52,7 @@
 
 		// Validate input. Values aren't tested, as the public .val method
 		// will always provide a valid location.
-		if ( !Array.isArray( entry ) || !entry.length || entry.length > 2 ) {
+		if ( !Array.isArray( entry ) || !entry.length ) {
 			throw new Error("noUiSlider: 'start' option is incorrect.");
 		}
 
@@ -103,6 +103,8 @@
 			parsed.connect = 3;
 		} else if ( entry === false ) {
 			parsed.connect = 0;
+		} else if (parsed.handles > 2) {
+			throw new Error("noUiSlider: 'connect' option does not support sliders with more than two handles.");
 		} else {
 			throw new Error("noUiSlider: 'connect' option doesn't match handle count.");
 		}
@@ -143,6 +145,10 @@
 	}
 
 	function testLimit ( parsed, entry ) {
+
+		if (parsed.handles !== 2) {
+			throw new Error("noUiSlider: 'limit' option only valid with exactly two handles.");
+		}
 
 		if ( !isNumeric(entry) ){
 			throw new Error("noUiSlider: 'limit' option must be numeric.");
@@ -272,6 +278,14 @@
 		}
 	}
 
+	function testUseRaf ( parsed, entry ) {
+		if ( entry === true || entry === false ) {
+			parsed.useRequestAnimationFrame = entry;
+		} else {
+			throw new Error("noUiSlider: 'useRequestAnimationFrame' option should be true (default) or false.");
+		}
+	}
+
 	// Test all developer settings and parse to assumption-safe values.
 	function testOptions ( options ) {
 
@@ -304,7 +318,8 @@
 			'format': { r: false, t: testFormat },
 			'tooltips': { r: false, t: testTooltips },
 			'cssPrefix': { r: false, t: testCssPrefix },
-			'cssClasses': { r: false, t: testCssClasses }
+			'cssClasses': { r: false, t: testCssClasses },
+			'useRequestAnimationFrame': { r: false, t: testUseRaf }
 		};
 
 		var defaults = {
@@ -347,7 +362,8 @@
 				valueNormal: 'value-normal',
 				valueLarge: 'value-large',
 				valueSub: 'value-sub'
-			}
+			},
+			'useRequestAnimationFrame': true
 		};
 
 		// Run all options through a testing mechanism to ensure correct
